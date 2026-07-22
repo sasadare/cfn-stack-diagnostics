@@ -1,0 +1,19 @@
+{
+  "name": "cfn-diagnostics-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "sandbox": "npx ampx sandbox",
+    "deploy": "npx ampx pipeline-deploy"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.0.0",
+    "@aws-amplify/backend-cli": "^1.0.0",
+    "aws-cdk-lib": "^2.150.0",
+    "constructs": "^10.3.0",
+    "typescript": "^5.5.3"
+  }
+}

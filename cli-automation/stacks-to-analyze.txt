@@ -1,0 +1,1 @@
+amplify-cfndiagnosticsapp-sasadare-sandbox-45a12bef4e,us-east-1

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.amplify/
+amplify_outputs.json
+.env
+*.js
+*.d.ts
+*.js.map
+!amplify.yml
+!vite.config.ts
+!frontend/**
