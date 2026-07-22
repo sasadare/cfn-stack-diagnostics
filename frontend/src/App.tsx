@@ -86,6 +86,7 @@ export default function App() {
                 <FailureDetails
                   failures={data.failedResources}
                   selectedStack={selectedStack}
+                  diagnosticsData={data}
                 />
               </div>
             </div>

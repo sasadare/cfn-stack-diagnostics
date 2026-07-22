@@ -1,14 +1,49 @@
 import { useState } from 'react';
-import { ResourceTiming } from '../types';
+import { ResourceTiming, DiagnosticsResponse } from '../types';
 import { formatTimestamp, formatDuration, getStatusColor } from '../utils/format';
 
 interface FailureDetailsProps {
   failures: ResourceTiming[];
   selectedStack: string | null;
+  diagnosticsData: DiagnosticsResponse;
 }
 
-export function FailureDetails({ failures, selectedStack }: FailureDetailsProps) {
+export function FailureDetails({ failures, selectedStack, diagnosticsData }: FailureDetailsProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  const handleExportReport = () => {
+    const report = {
+      exportedAt: new Date().toISOString(),
+      stackName: diagnosticsData.stackName,
+      region: diagnosticsData.region,
+      stackStatus: diagnosticsData.stackStatus,
+      operation: diagnosticsData.operation,
+      stackHierarchy: diagnosticsData.tree,
+      stackSummary: diagnosticsData.stackSummary,
+      failedResources: diagnosticsData.failedResources.map((resource) => ({
+        logicalId: resource.logicalId,
+        resourceType: resource.resourceType,
+        physicalId: resource.physicalId,
+        stackPath: resource.stackPath,
+        startTime: resource.startTime,
+        endTime: resource.endTime,
+        durationSeconds: resource.durationSeconds,
+        durationFormatted: resource.durationFormatted,
+        finalStatus: resource.finalStatus,
+        errorMessage: resource.statusReason,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${diagnosticsData.stackName}-diagnostic-report.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const filteredFailures = selectedStack
     ? failures.filter((f) => f.stackPath === selectedStack)
@@ -29,15 +64,21 @@ export function FailureDetails({ failures, selectedStack }: FailureDetailsProps)
 
   return (
     <div className="failure-details">
-      <h2>
-        Failed Resources
-        {selectedStack && (
-          <span className="filter-label">
-            {' '}
-            — filtered to {selectedStack.split('/').pop()}
-          </span>
-        )}
-      </h2>
+      <div className="failure-details-header">
+        <h2>
+          Failed Resources
+          {selectedStack && (
+            <span className="filter-label">
+              {' '}
+              — filtered to {selectedStack.split('/').pop()}
+            </span>
+          )}
+        </h2>
+        <button className="export-report-btn" onClick={handleExportReport}>
+          <span className="export-icon" aria-hidden="true">&#x2913;</span>
+          Export Report
+        </button>
+      </div>
 
       <div className="failure-list">
         {filteredFailures.map((failure, index) => {
