@@ -11,37 +11,112 @@ A full-stack web application that diagnoses CloudFormation nested stack failures
 └─────────────────┘     └──────────────┘     └─────────────────┘     └──────────────────┘
 ```
 
-## Cross-Account Access Model
+---
 
-This application uses **STS AssumeRole** for secure cross-account access:
+## Prerequisites (For Users Requesting Diagnostics)
 
-1. Users deploy a CloudFormation template (`cross-account-role.yaml`) in their target account
-2. The template creates a read-only IAM role with a trust policy pointing to the diagnostics account
-3. Users provide the Role ARN in the web UI
-4. The Lambda assumes that role to read CloudFormation data — no credentials leave the user's account
+Before using this tool, you must create a read-only IAM role in the AWS account that contains the stacks you want to diagnose. This role allows the diagnostics Lambda to read your CloudFormation data without needing your credentials.
 
-### Security Features
+### Step 1: Create the cross-account role
 
-- **Read-only**: The cross-account role only grants `cloudformation:Describe*` and `cloudformation:List*`
-- **External ID**: Prevents confused deputy attacks — both sides must agree on the external ID
-- **Scoped trust**: The role only trusts the specific account where this app is deployed
-- **No stored credentials**: Uses temporary STS tokens (15 min TTL)
-
-## Setup for Users (Target Account)
-
-Deploy the trust role in any AWS account you want to diagnose:
+Run this command in the AWS account where your stacks live:
 
 ```bash
-aws cloudformation deploy \
-  --template-file cross-account-role.yaml \
-  --stack-name cfn-diagnostics-role \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides \
-    TrustedAccountId=<ACCOUNT_ID_WHERE_APP_IS_DEPLOYED> \
-    ExternalId=cfn-diagnostics
+aws iam create-role \
+  --role-name CfnDiagnosticsReadRole \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::<DIAGNOSTICS_APP_ACCOUNT_ID>:root"
+        },
+        "Action": "sts:AssumeRole",
+        "Condition": {
+          "StringEquals": {
+            "sts:ExternalId": "cfn-diagnostics"
+          }
+        }
+      }
+    ]
+  }'
 ```
 
-Then copy the Role ARN from the stack outputs and use it in the web UI.
+Replace `<DIAGNOSTICS_APP_ACCOUNT_ID>` with the 12-digit AWS Account ID where this diagnostics application is deployed.
+
+### Step 2: Attach read-only CloudFormation permissions
+
+```bash
+aws iam put-role-policy \
+  --role-name CfnDiagnosticsReadRole \
+  --policy-name CloudFormationReadOnly \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudformation:DescribeStacks",
+          "cloudformation:DescribeStackEvents",
+          "cloudformation:DescribeStackResources",
+          "cloudformation:ListStackResources",
+          "cloudformation:ListStacks",
+          "cloudformation:GetTemplate"
+        ],
+        "Resource": "*"
+      }
+    ]
+  }'
+```
+
+### Step 3: Get your Role ARN
+
+```bash
+aws iam get-role --role-name CfnDiagnosticsReadRole --query "Role.Arn" --output text
+```
+
+This will output something like:
+```
+arn:aws:iam::123456789012:role/CfnDiagnosticsReadRole
+```
+
+### Step 4: Use it in the web UI
+
+Paste that Role ARN into the "Cross-Account Role ARN" field in the diagnostics app. Done.
+
+### What this role can do
+
+| Permission | Purpose |
+|-----------|---------|
+| `cloudformation:DescribeStacks` | Get stack status and metadata |
+| `cloudformation:DescribeStackEvents` | Read event history to find failures |
+| `cloudformation:DescribeStackResources` | List resources in a stack |
+| `cloudformation:ListStackResources` | Walk nested stack hierarchy |
+| `cloudformation:ListStacks` | Find deleted stacks |
+| `cloudformation:GetTemplate` | Read template (for context) |
+
+The role is **read-only** — it cannot create, modify, or delete any resources.
+
+### Cleanup
+
+To remove the role when you no longer need it:
+
+```bash
+aws iam delete-role-policy --role-name CfnDiagnosticsReadRole --policy-name CloudFormationReadOnly
+aws iam delete-role --role-name CfnDiagnosticsReadRole
+```
+
+---
+
+## Cross-Account Security Model
+
+- **External ID**: Both the Lambda and the role require the same external ID (`cfn-diagnostics`), preventing confused deputy attacks
+- **Scoped trust**: The role only trusts the specific account where this app is deployed
+- **No stored credentials**: Uses temporary STS tokens (15 min TTL)
+- **Read-only**: No write/delete permissions granted
+
+---
 
 ## Project Structure
 
@@ -55,7 +130,6 @@ Then copy the Role ARN from the stack outputs and use it in the web UI.
 │       ├── components/                     # React UI components
 │       ├── types/                          # TypeScript interfaces
 │       └── utils/                          # API client + formatters
-├── cross-account-role.yaml                 # CFN template users deploy in their account
 ├── amplify.yml                             # Amplify CI/CD build spec
 └── package.json
 ```
@@ -79,7 +153,7 @@ After sandbox deploys, set the API URL in `frontend/.env`:
 VITE_API_URL=https://xxxxx.execute-api.us-east-1.amazonaws.com/prod
 ```
 
-## Prerequisites
+## Developer Prerequisites
 
 - Node.js 18+
 - AWS CLI configured

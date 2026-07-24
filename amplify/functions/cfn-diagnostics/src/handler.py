@@ -47,7 +47,16 @@ def lambda_handler(event, context):
             })
 
         # Get stack info
-        info = get_stack_info(cfn, stack_name)
+        try:
+            info = get_stack_info(cfn, stack_name)
+        except ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            error_msg = e.response["Error"]["Message"]
+            return response(403, {
+                "message": f"Access denied when reading stack: {error_msg}. "
+                           f"Ensure the role has cloudformation:DescribeStacks permission."
+            })
+
         if not info:
             return response(404, {"message": f"Stack '{stack_name}' not found in {region}"})
 
@@ -215,6 +224,7 @@ def get_stack_info(cfn, stack_name):
         if stacks:
             return stacks[0]
     except ClientError as e:
+        error_code = e.response["Error"]["Code"]
         error_msg = e.response["Error"]["Message"]
         if "does not exist" in error_msg:
             try:
@@ -231,6 +241,10 @@ def get_stack_info(cfn, stack_name):
                                 pass
             except ClientError:
                 pass
+        else:
+            # Re-raise access denied or other unexpected errors
+            # so the caller can surface them properly
+            raise
     return None
 
 

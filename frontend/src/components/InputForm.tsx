@@ -103,33 +103,38 @@ export function InputForm({ onSubmit, isLoading }: InputFormProps) {
         <div className="help-panel" id="role-arn-help">
           <h3>Setup Instructions</h3>
           <p>
-            To use this tool, deploy the provided CloudFormation template in
-            your target AWS account. It creates a read-only role that this
-            application can assume.
+            Create a read-only IAM role in the account that contains the stacks
+            you want to diagnose. Run these commands with the AWS CLI:
           </p>
           <ol>
             <li>
-              Download the <code>cross-account-role.yaml</code> template from
-              this project's repository.
-            </li>
-            <li>
-              Deploy it in your AWS account:
+              Create the role (replace <code>DIAGNOSTICS_ACCOUNT_ID</code> with
+              the account where this app is hosted):
               <code className="code-block">
-                aws cloudformation deploy \<br />
-                &nbsp;&nbsp;--template-file cross-account-role.yaml \<br />
-                &nbsp;&nbsp;--stack-name cfn-diagnostics-role \<br />
-                &nbsp;&nbsp;--capabilities CAPABILITY_NAMED_IAM \<br />
-                &nbsp;&nbsp;--parameter-overrides \<br />
-                &nbsp;&nbsp;&nbsp;&nbsp;TrustedAccountId=DIAGNOSTICS_ACCOUNT_ID
+                aws iam create-role \<br />
+                &nbsp;&nbsp;--role-name CfnDiagnosticsReadRole \<br />
+                &nbsp;&nbsp;--assume-role-policy-document '&#123;"Version":"2012-10-17","Statement":[&#123;"Effect":"Allow","Principal":&#123;"AWS":"arn:aws:iam::DIAGNOSTICS_ACCOUNT_ID:root"&#125;,"Action":"sts:AssumeRole","Condition":&#123;"StringEquals":&#123;"sts:ExternalId":"cfn-diagnostics"&#125;&#125;&#125;]&#125;'
               </code>
             </li>
             <li>
-              Copy the Role ARN from the stack outputs and paste it above.
+              Attach read-only permissions:
+              <code className="code-block">
+                aws iam put-role-policy \<br />
+                &nbsp;&nbsp;--role-name CfnDiagnosticsReadRole \<br />
+                &nbsp;&nbsp;--policy-name CloudFormationReadOnly \<br />
+                &nbsp;&nbsp;--policy-document '&#123;"Version":"2012-10-17","Statement":[&#123;"Effect":"Allow","Action":["cloudformation:Describe*","cloudformation:List*","cloudformation:GetTemplate"],"Resource":"*"&#125;]&#125;'
+              </code>
+            </li>
+            <li>
+              Get the Role ARN:
+              <code className="code-block">
+                aws iam get-role --role-name CfnDiagnosticsReadRole --query "Role.Arn" --output text
+              </code>
             </li>
           </ol>
           <p className="help-note">
-            The role grants only <code>cloudformation:Describe*</code> and{' '}
-            <code>cloudformation:List*</code> permissions — read-only access.
+            The role grants only read-only CloudFormation access. It cannot
+            create, modify, or delete any resources.
           </p>
         </div>
       )}
