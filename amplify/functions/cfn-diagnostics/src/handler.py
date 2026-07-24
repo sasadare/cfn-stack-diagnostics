@@ -53,12 +53,22 @@ def lambda_handler(event, context):
             error_code = e.response["Error"]["Code"]
             error_msg = e.response["Error"]["Message"]
             return response(403, {
-                "message": f"Access denied when reading stack: {error_msg}. "
+                "message": f"Access denied when reading stack ({error_code}): {error_msg}. "
                            f"Ensure the role has cloudformation:DescribeStacks permission."
             })
 
         if not info:
-            return response(404, {"message": f"Stack '{stack_name}' not found in {region}"})
+            # Debug: show which identity was assumed and what region was used
+            try:
+                sts_debug = get_cross_account_sts_client(role_arn, region)
+                caller = sts_debug.get_caller_identity()
+                caller_info = f"Assumed identity: {caller.get('Arn', 'unknown')} (Account: {caller.get('Account', 'unknown')})"
+            except Exception:
+                caller_info = "Could not determine assumed identity"
+
+            return response(404, {
+                "message": f"Stack '{stack_name}' not found in {region}. {caller_info}"
+            })
 
         stack_arn = info.get("StackId", stack_name)
         stack_status = info["StackStatus"]
@@ -158,6 +168,30 @@ def get_cross_account_cfn_client(role_arn, region):
         region_name=region,
     )
     return session.client("cloudformation")
+
+
+def get_cross_account_sts_client(role_arn, region):
+    """
+    Assume a cross-account IAM role and return an STS client for debugging.
+    """
+    import os
+    external_id = os.environ.get("EXTERNAL_ID", "cfn-diagnostics")
+
+    sts = boto3.client("sts")
+    assumed = sts.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName="cfn-diagnostics-debug",
+        ExternalId=external_id,
+        DurationSeconds=900,
+    )
+    creds = assumed["Credentials"]
+    session = boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region,
+    )
+    return session.client("sts")
 
 
 def format_timing(r):
