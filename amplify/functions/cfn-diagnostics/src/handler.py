@@ -253,6 +253,21 @@ def get_stack_short_name(stack_name_or_arn):
 
 
 def get_stack_info(cfn, stack_name):
+    """
+    Get stack info. When a full ARN is provided, extract the stack name
+    for fallback searches. Also handles cross-account scenarios where
+    describe_stacks may return 'does not exist' for permission issues.
+    """
+    # Extract the short name if a full ARN or ARN-style path is given
+    # ARN format: arn:aws:cloudformation:REGION:ACCOUNT:stack/STACK_NAME/GUID
+    if stack_name.startswith("arn:"):
+        parts = stack_name.split("/")
+        short_name = parts[1] if len(parts) >= 2 else stack_name
+    elif "/" in stack_name:
+        short_name = stack_name.split("/")[1]
+    else:
+        short_name = stack_name
+
     try:
         stacks = cfn.describe_stacks(StackName=stack_name)["Stacks"]
         if stacks:
@@ -261,12 +276,22 @@ def get_stack_info(cfn, stack_name):
         error_code = e.response["Error"]["Code"]
         error_msg = e.response["Error"]["Message"]
         if "does not exist" in error_msg:
+            # Try looking up by short name first (in case ARN didn't work)
+            if short_name != stack_name:
+                try:
+                    stacks = cfn.describe_stacks(StackName=short_name)["Stacks"]
+                    if stacks:
+                        return stacks[0]
+                except ClientError:
+                    pass
+
+            # Fall back to searching deleted stacks
             try:
                 for page in cfn.get_paginator("list_stacks").paginate(
                     StackStatusFilter=["DELETE_COMPLETE"]
                 ):
                     for s in page["StackSummaries"]:
-                        if s["StackName"] == stack_name:
+                        if s["StackName"] == short_name or s.get("StackId") == stack_name:
                             try:
                                 result = cfn.describe_stacks(StackName=s["StackId"])["Stacks"]
                                 if result:
@@ -277,7 +302,6 @@ def get_stack_info(cfn, stack_name):
                 pass
         else:
             # Re-raise access denied or other unexpected errors
-            # so the caller can surface them properly
             raise
     return None
 
