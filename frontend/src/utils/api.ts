@@ -14,7 +14,7 @@ export async function fetchDiagnostics(
     body: JSON.stringify({
       stack_name: request.stackName,
       region: request.region,
-      profile: request.profile || undefined,
+      role_arn: request.roleArn,
     }),
   });
 

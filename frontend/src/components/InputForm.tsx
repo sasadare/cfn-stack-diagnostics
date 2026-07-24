@@ -17,15 +17,20 @@ interface InputFormProps {
 export function InputForm({ onSubmit, isLoading }: InputFormProps) {
   const [stackName, setStackName] = useState('');
   const [region, setRegion] = useState('us-east-1');
-  const [profile, setProfile] = useState('');
+  const [roleArn, setRoleArn] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
+
+  const isValidRoleArn = (arn: string) =>
+    /^arn:aws:iam::\d{12}:role\/.+$/.test(arn.trim());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stackName.trim()) return;
+    if (!stackName.trim() || !roleArn.trim()) return;
+    if (!isValidRoleArn(roleArn)) return;
     onSubmit({
       stackName: stackName.trim(),
       region,
-      profile: profile.trim() || undefined,
+      roleArn: roleArn.trim(),
     });
   };
 
@@ -33,7 +38,7 @@ export function InputForm({ onSubmit, isLoading }: InputFormProps) {
     <form onSubmit={handleSubmit} className="input-form">
       <h2>CloudFormation Stack Diagnostics</h2>
       <p className="form-description">
-        Analyze nested stack failures and visualize the hierarchy.
+        Analyze nested stack failures across any AWS account.
       </p>
 
       <div className="form-group">
@@ -66,18 +71,73 @@ export function InputForm({ onSubmit, isLoading }: InputFormProps) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="profile">AWS Profile (optional)</label>
+        <label htmlFor="role-arn">
+          Cross-Account Role ARN *
+          <button
+            type="button"
+            className="help-toggle"
+            onClick={() => setShowHelp(!showHelp)}
+            aria-label="Show setup instructions"
+          >
+            ?
+          </button>
+        </label>
         <input
-          id="profile"
+          id="role-arn"
           type="text"
-          value={profile}
-          onChange={(e) => setProfile(e.target.value)}
-          placeholder="default"
+          value={roleArn}
+          onChange={(e) => setRoleArn(e.target.value)}
+          placeholder="arn:aws:iam::123456789012:role/CfnDiagnosticsReadRole"
+          required
           disabled={isLoading}
+          aria-describedby="role-arn-help"
         />
+        {roleArn && !isValidRoleArn(roleArn) && (
+          <span className="field-error">
+            Must be a valid IAM Role ARN (arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME)
+          </span>
+        )}
       </div>
 
-      <button type="submit" disabled={isLoading || !stackName.trim()}>
+      {showHelp && (
+        <div className="help-panel" id="role-arn-help">
+          <h3>Setup Instructions</h3>
+          <p>
+            To use this tool, deploy the provided CloudFormation template in
+            your target AWS account. It creates a read-only role that this
+            application can assume.
+          </p>
+          <ol>
+            <li>
+              Download the <code>cross-account-role.yaml</code> template from
+              this project's repository.
+            </li>
+            <li>
+              Deploy it in your AWS account:
+              <code className="code-block">
+                aws cloudformation deploy \<br />
+                &nbsp;&nbsp;--template-file cross-account-role.yaml \<br />
+                &nbsp;&nbsp;--stack-name cfn-diagnostics-role \<br />
+                &nbsp;&nbsp;--capabilities CAPABILITY_NAMED_IAM \<br />
+                &nbsp;&nbsp;--parameter-overrides \<br />
+                &nbsp;&nbsp;&nbsp;&nbsp;TrustedAccountId=DIAGNOSTICS_ACCOUNT_ID
+              </code>
+            </li>
+            <li>
+              Copy the Role ARN from the stack outputs and paste it above.
+            </li>
+          </ol>
+          <p className="help-note">
+            The role grants only <code>cloudformation:Describe*</code> and{' '}
+            <code>cloudformation:List*</code> permissions — read-only access.
+          </p>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isLoading || !stackName.trim() || !isValidRoleArn(roleArn)}
+      >
         {isLoading ? (
           <>
             <span className="spinner" aria-hidden="true"></span>

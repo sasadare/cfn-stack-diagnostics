@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Creates a read-only IAM role that the CFN Diagnostics application can assume
+  to analyze CloudFormation stacks in this account.
+
+Parameters:
+  TrustedAccountId:
+    Type: String
+    Description: >
+      The AWS Account ID where the CFN Diagnostics application is deployed.
+      The Lambda function in that account will assume this role.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    Default: 'cfn-diagnostics'
+    Description: >
+      An external ID for additional security. Both sides must agree on this value.
+      Change this to a unique string for your organization.
+
+Resources:
+  CfnDiagnosticsReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CfnDiagnosticsReadRole
+      Description: >
+        Read-only role for the CFN Stack Diagnostics application.
+        Allows describing stacks, events, and resources.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${TrustedAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: CloudFormationReadOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:ListStackResources'
+                  - 'cloudformation:ListStacks'
+                  - 'cloudformation:GetTemplate'
+                Resource: '*'
+      Tags:
+        - Key: Application
+          Value: cfn-diagnostics
+        - Key: Purpose
+          Value: cross-account-read-only
+
+Outputs:
+  RoleArn:
+    Description: The ARN of the role to provide to the CFN Diagnostics application.
+    Value: !GetAtt CfnDiagnosticsReadRole.Arn
+    Export:
+      Name: CfnDiagnosticsRoleArn
+
+  SetupCommand:
+    Description: Example assume-role test command.
+    Value: !Sub >
+      aws sts assume-role
+      --role-arn ${CfnDiagnosticsReadRole.Arn}
+      --role-session-name test-session
+      --external-id ${ExternalId}

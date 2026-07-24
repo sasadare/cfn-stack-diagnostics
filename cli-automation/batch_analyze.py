@@ -1,174 +1,175 @@
-#!/usr/bin/env python3
-"""Batch analyze CloudFormation stacks for failure diagnostics.
 
-Reads stack names and regions from stacks-to-analyze.txt, calls the
-diagnostics API for each, saves reports, and prints a summary table.
+#!/usr/bin/env python3
+"""
+Batch CloudFormation Stack Analyzer
+Generated via Kiro CLI (kiro chat)
+Updated to support cross-account role ARN
+
+Reads stacks from stacks-to-analyze.txt and calls the diagnostics API for each.
+Format: stack-name,region[,role_arn]  (role_arn is optional)
 """
 
 import json
 import os
 import sys
-
 import requests
+from datetime import datetime
 
-API_URL = "https://s979hd8i75.execute-api.us-east-1.amazonaws.com/prod/diagnose"
-TIMEOUT_SECONDS = 130
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-INPUT_FILE = os.path.join(SCRIPT_DIR, "stacks-to-analyze.txt")
-REPORTS_DIR = os.path.join(SCRIPT_DIR, "reports")
+# Configuration
+API_URL = os.environ.get(
+    'CFN_DIAGNOSTICS_API_URL',
+    'https://s979hd8i75.execute-api.us-east-1.amazonaws.com/prod/diagnose'
+)
+TIMEOUT = 130  # seconds (Lambda has 120s timeout)
+REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports')
+INPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stacks-to-analyze.txt')
 
 
-def read_stacks(filepath):
-    """Read stacks from the input file. Each line: stack-name,region"""
+def read_stacks_file(filepath):
+    """Read stacks from input file. Format: stack-name,region[,role_arn]"""
     stacks = []
-    with open(filepath, "r") as f:
-        for line in f:
+    if not os.path.exists(filepath):
+        print(f"Error: Input file not found: {filepath}")
+        sys.exit(1)
+
+    with open(filepath, 'r') as f:
+        for line_num, line in enumerate(f, 1):
             line = line.strip()
-            if not line or line.startswith("#"):
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
                 continue
-            parts = line.split(",", 1)
-            if len(parts) != 2:
-                print(f"WARNING: Skipping malformed line: {line}")
+
+            parts = line.split(',')
+            if len(parts) < 2:
+                print(f"Warning: Skipping malformed line {line_num}: {line}")
                 continue
-            stack_name, region = parts[0].strip(), parts[1].strip()
-            stacks.append((stack_name, region))
+
+            stack_entry = {
+                'stack_name': parts[0].strip(),
+                'region': parts[1].strip(),
+            }
+
+            # Optional role_arn (third field)
+            if len(parts) >= 3 and parts[2].strip():
+                stack_entry['role_arn'] = parts[2].strip()
+
+            stacks.append(stack_entry)
+
     return stacks
 
 
-def analyze_stack(stack_name, region):
-    """Send a POST request to the diagnostics API and return the response."""
-    payload = {"stack_name": stack_name, "region": region}
+def analyze_stack(stack_entry):
+    """Call the diagnostics API for a single stack."""
+    payload = {
+        'stack_name': stack_entry['stack_name'],
+        'region': stack_entry['region'],
+    }
+
+    # Include role_arn if provided
+    if 'role_arn' in stack_entry:
+        payload['role_arn'] = stack_entry['role_arn']
+
     try:
-        response = requests.post(API_URL, json=payload, timeout=TIMEOUT_SECONDS)
-        response.raise_for_status()
-        return {"success": True, "data": response.json()}
+        response = requests.post(
+            API_URL,
+            json=payload,
+            headers={'Content-Type': 'application/json'},
+            timeout=TIMEOUT
+        )
+
+        if response.status_code == 200:
+            return {'status': 'OK', 'data': response.json()}
+        else:
+            error_msg = response.text
+            try:
+                error_json = response.json()
+                error_msg = error_json.get('error', response.text)
+            except:
+                pass
+            return {'status': 'ERROR', 'error': f"HTTP {response.status_code}: {error_msg}"}
+
     except requests.exceptions.Timeout:
-        return {"success": False, "error": "Request timed out (130s)"}
+        return {'status': 'TIMEOUT', 'error': 'Request timed out (130s)'}
     except requests.exceptions.ConnectionError:
-        return {"success": False, "error": "Connection error"}
-    except requests.exceptions.HTTPError as e:
-        return {"success": False, "error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
-    except requests.exceptions.RequestException as e:
-        return {"success": False, "error": str(e)}
-    except json.JSONDecodeError:
-        return {"success": False, "error": "Invalid JSON in response"}
+        return {'status': 'ERROR', 'error': 'Connection failed - is the API running?'}
+    except Exception as e:
+        return {'status': 'ERROR', 'error': str(e)}
 
 
 def save_report(stack_name, result):
-    """Save the API response to reports/{stack-name}.json"""
+    """Save the analysis result to a JSON file."""
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    report_path = os.path.join(REPORTS_DIR, f"{stack_name}.json")
-    with open(report_path, "w") as f:
-        json.dump(result, f, indent=2)
-    return report_path
 
+    # Sanitize stack name for filename
+    safe_name = stack_name.replace('/', '_').replace(':', '_')
+    filename = f"{safe_name}.json"
+    filepath = os.path.join(REPORTS_DIR, filename)
 
-def count_failed_resources(data):
-    """Count failed resources from the diagnostics response."""
-    if isinstance(data, dict):
-        # Try common response structures
-        if "failed_resources" in data:
-            resources = data["failed_resources"]
-            return len(resources) if isinstance(resources, list) else 0
-        if "body" in data:
-            body = data["body"]
-            if isinstance(body, str):
-                try:
-                    body = json.loads(body)
-                except json.JSONDecodeError:
-                    return 0
-            if isinstance(body, dict) and "failed_resources" in body:
-                return len(body["failed_resources"])
-    return 0
+    with open(filepath, 'w') as f:
+        json.dump(result, f, indent=2, default=str)
 
-
-def get_first_error(data):
-    """Extract the first error message from the diagnostics response."""
-    if isinstance(data, dict):
-        # Try common response structures
-        failed = None
-        if "failed_resources" in data:
-            failed = data["failed_resources"]
-        elif "body" in data:
-            body = data["body"]
-            if isinstance(body, str):
-                try:
-                    body = json.loads(body)
-                except json.JSONDecodeError:
-                    return "N/A"
-            if isinstance(body, dict) and "failed_resources" in body:
-                failed = body["failed_resources"]
-
-        if failed and isinstance(failed, list) and len(failed) > 0:
-            first = failed[0]
-            if isinstance(first, dict):
-                return first.get("status_reason", first.get("error", "N/A"))[:80]
-    return "N/A"
+    return filepath
 
 
 def print_summary(results):
-    """Print a formatted summary table of all results."""
-    # Column widths
-    name_width = max(len("Stack Name"), max((len(r["name"]) for r in results), default=10))
-    name_width = min(name_width, 55)  # Cap width for readability
-
-    header = f"{'Stack Name':<{name_width}} | {'Status':<10} | {'Failed':<6} | First Error"
-    separator = "-" * len(header)
-
-    print("\n" + separator)
-    print(header)
-    print(separator)
+    """Print a formatted summary table."""
+    print("\n" + "=" * 100)
+    print(f"{'Stack Name':<55} | {'Status':<8} | {'Failed':<6} | {'First Error'}")
+    print("-" * 100)
 
     for r in results:
-        name = r["name"][:name_width]
-        status = r["status"]
-        failed = r["failed_count"]
-        error = r["first_error"][:60]
-        print(f"{name:<{name_width}} | {status:<10} | {failed:<6} | {error}")
+        stack_name = r['stack_name'][:54]
+        status = r['result']['status']
+        failed = 0
+        first_error = 'N/A'
 
-    print(separator + "\n")
+        if status == 'OK' and 'data' in r['result']:
+            data = r['result']['data']
+            failed = len(data.get('failed_resources', []))
+            if failed > 0:
+                first_error = data['failed_resources'][0].get('status_reason', 'Unknown')[:40]
+
+        elif status in ('ERROR', 'TIMEOUT'):
+            first_error = r['result'].get('error', 'Unknown')[:40]
+
+        print(f"{stack_name:<55} | {status:<8} | {failed:<6} | {first_error}")
+
+    print("=" * 100)
 
 
 def main():
-    if not os.path.exists(INPUT_FILE):
-        print(f"ERROR: Input file not found: {INPUT_FILE}")
-        sys.exit(1)
+    print(f"CFN Stack Batch Analyzer")
+    print(f"API: {API_URL}")
+    print(f"Time: {datetime.now().isoformat()}")
+    print()
 
-    stacks = read_stacks(INPUT_FILE)
-    if not stacks:
-        print("No stacks found in input file.")
-        sys.exit(0)
-
+    # Read input file
+    stacks = read_stacks_file(INPUT_FILE)
     print(f"Analyzing {len(stacks)} stack(s)...\n")
 
     results = []
+    for i, stack_entry in enumerate(stacks, 1):
+        stack_name = stack_entry['stack_name']
+        region = stack_entry['region']
+        role_info = f" (via {stack_entry['role_arn'][:30]}...)" if 'role_arn' in stack_entry else ""
 
-    for stack_name, region in stacks:
-        print(f"  → Analyzing: {stack_name} ({region})...")
-        result = analyze_stack(stack_name, region)
+        print(f"[{i}/{len(stacks)}] Analyzing: {stack_name} ({region}){role_info}")
 
-        if result["success"]:
-            save_report(stack_name, result["data"])
-            failed_count = count_failed_resources(result["data"])
-            first_error = get_first_error(result["data"])
-            results.append({
-                "name": stack_name,
-                "status": "OK",
-                "failed_count": failed_count,
-                "first_error": first_error,
-            })
+        result = analyze_stack(stack_entry)
+        results.append({'stack_name': stack_name, 'region': region, 'result': result})
+
+        # Save report
+        if result['status'] == 'OK' and 'data' in result:
+            filepath = save_report(stack_name, result['data'])
+            print(f"         Report saved: {filepath}")
         else:
-            save_report(stack_name, {"error": result["error"]})
-            results.append({
-                "name": stack_name,
-                "status": "ERROR",
-                "failed_count": "N/A",
-                "first_error": result["error"][:60],
-            })
+            print(f"         {result['status']}: {result.get('error', 'Unknown error')}")
 
+    # Print summary
     print_summary(results)
-    print(f"Reports saved to: {REPORTS_DIR}")
+    print(f"\nReports saved to: {REPORTS_DIR}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
+

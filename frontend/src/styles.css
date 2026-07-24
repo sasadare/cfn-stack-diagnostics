@@ -163,6 +163,92 @@ button[type='submit']:disabled {
   cursor: not-allowed;
 }
 
+.help-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.help-toggle:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.field-error {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.help-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.8125rem;
+}
+
+.help-panel h3 {
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+  color: var(--accent);
+}
+
+.help-panel p {
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.help-panel ol {
+  padding-left: 1.25rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.help-panel li {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+.help-panel code {
+  background: var(--bg-tertiary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.help-panel .code-block {
+  display: block;
+  margin-top: 0.375rem;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.help-note {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
 .spinner {
   width: 16px;
   height: 16px;

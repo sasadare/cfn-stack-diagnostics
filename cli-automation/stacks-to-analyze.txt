@@ -1,1 +1,10 @@
+
+# Format: stack-name,region[,role_arn]
+# role_arn is optional - omit for same-account stacks
+#
+# Same-account stacks (uses Lambda's own role):
 amplify-cfndiagnosticsapp-sasadare-sandbox-45a12bef4e,us-east-1
+#
+# Cross-account stacks (assumes the provided role):
+# my-other-stack,us-west-2,arn:aws:iam::123456789012:role/CfnDiagnosticsReadOnly
+

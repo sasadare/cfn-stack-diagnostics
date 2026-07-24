@@ -24,13 +24,27 @@ def lambda_handler(event, context):
 
         stack_name = body.get("stack_name")
         region = body.get("region")
-        profile = body.get("profile")  # Not used in Lambda (uses execution role)
+        role_arn = body.get("role_arn")
 
         if not stack_name or not region:
             return response(400, {"message": "stack_name and region are required"})
 
-        # In Lambda, we use the execution role (profile is ignored)
-        cfn = boto3.Session(region_name=region).client("cloudformation")
+        if not role_arn:
+            return response(400, {"message": "role_arn is required for cross-account access"})
+
+        # Validate role ARN format
+        if not role_arn.startswith("arn:aws:iam::") or ":role/" not in role_arn:
+            return response(400, {"message": "Invalid role ARN format"})
+
+        # Assume the cross-account role
+        try:
+            cfn = get_cross_account_cfn_client(role_arn, region)
+        except ClientError as e:
+            error_msg = e.response["Error"]["Message"]
+            return response(403, {
+                "message": f"Failed to assume role: {error_msg}. "
+                           f"Ensure the role trust policy allows this Lambda to assume it."
+            })
 
         # Get stack info
         info = get_stack_info(cfn, stack_name)
@@ -110,6 +124,31 @@ def response(status_code, body):
         },
         "body": json.dumps(body, default=str),
     }
+
+
+def get_cross_account_cfn_client(role_arn, region):
+    """
+    Assume a cross-account IAM role and return a CloudFormation client
+    using the temporary credentials.
+    """
+    import os
+    external_id = os.environ.get("EXTERNAL_ID", "cfn-diagnostics")
+
+    sts = boto3.client("sts")
+    assumed = sts.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName="cfn-diagnostics-session",
+        ExternalId=external_id,
+        DurationSeconds=900,  # 15 minutes (minimum)
+    )
+    creds = assumed["Credentials"]
+    session = boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region,
+    )
+    return session.client("cloudformation")
 
 
 def format_timing(r):

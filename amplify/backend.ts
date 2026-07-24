@@ -23,20 +23,18 @@ const diagnosticsFunction = new lambda.Function(apiStack, 'CfnDiagnosticsFunctio
   memorySize: 512,
   environment: {
     POWERTOOLS_SERVICE_NAME: 'cfn-diagnostics',
+    EXTERNAL_ID: 'cfn-diagnostics',
   },
 });
 
-// Grant CloudFormation read permissions
+// Grant CloudFormation read permissions and STS AssumeRole
 diagnosticsFunction.addToRolePolicy(
   new iam.PolicyStatement({
     effect: iam.Effect.ALLOW,
     actions: [
-      'cloudformation:DescribeStacks',
-      'cloudformation:DescribeStackEvents',
-      'cloudformation:ListStackResources',
-      'cloudformation:ListStacks',
+      'sts:AssumeRole',
     ],
-    resources: ['*'],
+    resources: ['*'],  // Users provide their own role ARNs
   })
 );
 
