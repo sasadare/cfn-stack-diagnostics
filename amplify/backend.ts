@@ -19,7 +19,7 @@ const diagnosticsFunction = new lambda.Function(apiStack, 'CfnDiagnosticsFunctio
   runtime: lambda.Runtime.PYTHON_3_12,
   handler: 'handler.lambda_handler',
   code: lambda.Code.fromAsset(join(__dirname, 'functions/cfn-diagnostics/src')),
-  timeout: cdk.Duration.seconds(120),
+  timeout: cdk.Duration.seconds(300),
   memorySize: 512,
   environment: {
     POWERTOOLS_SERVICE_NAME: 'cfn-diagnostics',
